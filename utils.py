@@ -18,10 +18,12 @@ def get_data_types(data, cat_threshold=10):
             row = ['cat', n_uniq,None,None]
         elif n_uniq > cat_threshold and data[col].dropna().min() >= 0:
             col_data = data[col].dropna()
-            skewness = skew(col_data)
+            skewness = abs(skew(col_data))
             best_fit, diff = AIC_comparison(col_data)
             if best_fit == 'norm' and skewness > 1:
                 best_fit = 'lognorm'
+            elif best_fit == 'lognorm' and skewness <= 1:
+                best_fit = 'norm'
             row = [best_fit, 1, round(diff, 1), round(skewness, 2)]
         elif n_uniq > cat_threshold and data[col].dropna().min() < 0:
             skewness = skew(col_data)
