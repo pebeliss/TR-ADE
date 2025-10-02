@@ -16,7 +16,7 @@ class VADEGAM(keras.Model):
         self.decoder = Decoder(cont_dim, bin_dim, hidden1=nn_layers[2], hidden2=nn_layers[1], hidden3=nn_layers[0])
         if self.classify:
             if self.s_to_classifier:
-                self.classifier = Classifier_New(num_classes, num_clusters, num_output_head=num_output_head)
+                self.classifier = Classifier_New(num_classes, num_clusters, num_output_head=num_output_head, hidden1=latent_dim)
             else:
                 self.classifier = Classifier(num_classes, num_output_head=num_output_head, final_activation=final_activation)
                     
@@ -73,8 +73,8 @@ class VADEGAM(keras.Model):
 
     def call(self, data):
         '''Predict/call method.'''
-        tf.print(len(data))
-        tf.print(data.shape)
+        # tf.print(len(data))
+        # tf.print(data.shape)
         z_mean, z_logvar, z = self.encoder(data)
 
         x_mean_pred, x_logvar_pred, theta_pred = self.decoder(z_mean)
