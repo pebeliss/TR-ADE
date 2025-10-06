@@ -7,7 +7,7 @@ import tensorflow as tf
 import keras
 from sklearn.model_selection import train_test_split
 
-from VADEGAM import VADEGAM
+from TR_ADE import TR_ADE
 from subclasses import Preprocessing, DataGenerator, EpochLogger
 
 import utils
@@ -141,8 +141,8 @@ class PREPROCESSOR_WRAPPER:
                 na_cols.update(na_cols_subset)
         return list(na_cols)
 
-class VADEGAM_WRAPPER:
-    '''Wrapper for VaDEGam model with customable lr schedule & early stopping.'''
+class TR_ADE_WRAPPER:
+    '''Wrapper for TR_ADE model with customable lr schedule & early stopping.'''
     def __init__(self, args, cont_dim, bin_dim, seed=12345, log_interval=50, classif_dependent=True):
         # set_seed(seed)
         self.seed = args.seed if args.seed is not None else seed
@@ -179,7 +179,7 @@ class VADEGAM_WRAPPER:
         self.c_sigma_initializer = args.c_sigma_initializer
 
     def build(self):
-        self.build_vadegam()
+        self.build_TR_ADE()
 
         if self.use_early_stopping:
             self.early_stopping = tf.keras.callbacks.EarlyStopping(
@@ -200,27 +200,27 @@ class VADEGAM_WRAPPER:
         epoch_logger = EpochLogger(log_interval=self.log_interval)
         self.callbacks.append(epoch_logger)
             
-    def build_vadegam(self):
-        self.vadegam = VADEGAM(self.latent_dim, self.cont_dim, self.bin_dim, 
+    def build_TR_ADE(self):
+        self.TR_ADE = TR_ADE(self.latent_dim, self.cont_dim, self.bin_dim, 
                                self.num_classes, self.gamma, classify=self.classify, 
                                num_output_head=self.num_output_head, num_clusters=self.num_clusters, 
                                s_to_classifier=self.s_to_classifier, learn_prior=self.learn_prior,
                                final_activation=self.final_activation, nn_layers=self.nn_layers, initializer=self.c_sigma_initializer,
                                classif_dependent=self.classif_dependent)
         if self.use_lr_schedule:
-            self.vadegam.compile(optimizer=keras.optimizers.Adam())
+            self.TR_ADE.compile(optimizer=keras.optimizers.Adam())
         else:
-            self.vadegam.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate))
+            self.TR_ADE.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate))
 
     def model_fit(self, train_generator, val_generator):
         if self.use_early_stopping:
-            return self.vadegam.fit(train_generator, validation_data=val_generator, 
+            return self.TR_ADE.fit(train_generator, validation_data=val_generator, 
                                     epochs=self.epochs, callbacks=self.callbacks, verbose=0)
-        return self.vadegam.fit(train_generator, validation_data=val_generator, 
+        return self.TR_ADE.fit(train_generator, validation_data=val_generator, 
                                 epochs=self.epochs, callbacks=self.callbacks, verbose=0)
 
     def model_predict(self, X_processed):
-        out = self.vadegam.predict(X_processed)
+        out = self.TR_ADE.predict(X_processed)
         X_recon, z_mean, clusters = out[:3]
         if self.classify:
             pred_label = np.concatenate(out[3:], axis=1)
@@ -228,5 +228,5 @@ class VADEGAM_WRAPPER:
         return X_recon, z_mean, clusters
     
     def get_clusters(self, z_mean):
-        return self.vadegam.get_clusters(z_mean).numpy()
+        return self.TR_ADE.get_clusters(z_mean).numpy()
     

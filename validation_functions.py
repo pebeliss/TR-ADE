@@ -4,14 +4,14 @@ from sklearn.utils import resample
 from tqdm import tqdm
 import datetime
 
-from VADEGAM_pipeline import PREPROCESSOR_WRAPPER, VADEGAM_WRAPPER, set_seed
+from TR_ADE_pipeline import PREPROCESSOR_WRAPPER, TR_ADE_WRAPPER, set_seed
 
 
 def train_and_pred(X, y, args, seed=12345, test_data=()):
-    """VaDEGam pipeline wrapper for validation & consensus clustering.
+    """TR_ADE pipeline wrapper for validation & consensus clustering.
 
     :param X, y: subsampled train data and labels
-    :param args: arguments passed to VaDEGam
+    :param args: arguments passed to TR_ADE
     :param seed: random seed
 
     :returns: list (correct order) of indices and list of clusters
@@ -26,23 +26,23 @@ def train_and_pred(X, y, args, seed=12345, test_data=()):
     preprocessor.build(X)
     train_generator, val_generator, train_data, val_data = preprocessor.data_pipeline(X, y, return_generator=True, split_seed=seed)
     X_all = pd.concat([train_data[0], val_data[0]], axis=0)
-    vadegam = VADEGAM_WRAPPER(args, preprocessor.cont_dim, preprocessor.bin_dim, log_interval=150)
-    vadegam.build()
-    history = vadegam.model_fit(train_generator, val_generator)
+    tr_ade = TR_ADE_WRAPPER(args, preprocessor.cont_dim, preprocessor.bin_dim, log_interval=150)
+    tr_ade.build()
+    history = tr_ade.model_fit(train_generator, val_generator)
     results['history'] = history.history
     if args.classify:
-        _, _, _, results['pred_label_val'] = vadegam.model_predict(val_data[0])
+        _, _, _, results['pred_label_val'] = tr_ade.model_predict(val_data[0])
         results['val_data_idx'] = val_data[0].index
-        _, results['z_mean'], results['clusters'], results['pred_label_tr_val'] = vadegam.model_predict(X_all)
+        _, results['z_mean'], results['clusters'], results['pred_label_tr_val'] = tr_ade.model_predict(X_all)
         results['x_all_idx'] = X_all.index
         if len(test_data) > 0:
             test_data_processed = preprocessor.preprocess(*test_data)
-            _, results['z_mean_test'], results['clusters_test'], results['pred_label_test'] = vadegam.model_predict(test_data_processed[0])
+            _, results['z_mean_test'], results['clusters_test'], results['pred_label_test'] = tr_ade.model_predict(test_data_processed[0])
     else:
-        results['X_recon'], results['z_mean'], results['clusters'] = vadegam.model_predict(X_all)
+        results['X_recon'], results['z_mean'], results['clusters'] = tr_ade.model_predict(X_all)
         if len(test_data) > 0:
             test_data_processed = preprocessor.preprocess(test_data)
-            X_recon_tst, results['z_mean_test'], results['clusters_test'] = vadegam.model_predict(test_data_processed[0])
+            X_recon_tst, results['z_mean_test'], results['clusters_test'] = tr_ade.model_predict(test_data_processed[0])
             X_recon_tst_pd = pd.DataFrame(X_recon_tst, columns = test_data_processed[0].columns, index=test_data_processed[0].index)
             X_inverted_tst = preprocessor.preprocessor.inverse_transform(X_recon_tst_pd)
             results['X_recon_test'] = X_recon_tst_pd
@@ -52,10 +52,10 @@ def train_and_pred(X, y, args, seed=12345, test_data=()):
 
 def resample_runs(X, y, args, nruns=80, subsample_frac=0.5, rseeds = [], 
                   mseeds = [], save_results = './results', test_data = ()):
-    """Perform nruns number of runs with VaDEGam and subsample_frac*100% subsampling.
+    """Perform nruns number of runs with TR_ADE and subsample_frac*100% subsampling.
 
     :param X, y: train data and labels
-    :param args: arguments passed to VaDEGam
+    :param args: arguments passed to TR_ADE
     :param nruns: number of runs
     :param subsample_frac: fraction of subsampled data
     :param mseeds: seed values used to initialise the model on each iteration. If empty, set to rseeds

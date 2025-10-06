@@ -4,12 +4,12 @@ import tensorflow as tf
 from tensorflow import keras
 from subnetworks import Sampling, Encoder, Decoder, Classifier, Classifier_New, Classifier_indep
 
-class VADEGAM(keras.Model):
+class TR_ADE(keras.Model):
     def __init__(self, latent_dim, cont_dim, bin_dim, num_classes=None, gamma = 1, 
                  classify= True, num_output_head=1, num_clusters = 10, learn_prior = False, 
                  s_to_classifier=False, final_activation='softmax', nn_layers = [64, 32, 16], initializer = 'glorot', 
                  classif_dependent=True, **kwargs):
-        super(VADEGAM, self, **kwargs).__init__()
+        super(TR_ADE, self, **kwargs).__init__()
         '''Class constructor.'''
         self.classify = classify
         self.s_to_classifier = s_to_classifier
