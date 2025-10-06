@@ -7,7 +7,7 @@ import datetime
 from VADEGAM_pipeline import PREPROCESSOR_WRAPPER, VADEGAM_WRAPPER, set_seed
 
 
-def train_and_pred(X, y, args, seed=12345):
+def train_and_pred(X, y, args, seed=12345, test_data=()):
     """VaDEGam pipeline wrapper for validation & consensus clustering.
 
     :param X, y: subsampled train data and labels
@@ -17,18 +17,41 @@ def train_and_pred(X, y, args, seed=12345):
     :returns: list (correct order) of indices and list of clusters
     
     """
-    preprocessor = PREPROCESSOR_WRAPPER(args, seed=seed)
+    results = {}
+
+    assert y is not None and args.classify == True, 'To classify, provide class labels (y)'
+
+    set_seed(seed)
+    preprocessor = PREPROCESSOR_WRAPPER(args)
     preprocessor.build(X)
     train_generator, val_generator, train_data, val_data = preprocessor.data_pipeline(X, y, return_generator=True, split_seed=seed)
     X_all = pd.concat([train_data[0], val_data[0]], axis=0)
-    vadegam = VADEGAM_WRAPPER(args, preprocessor.cont_dim, preprocessor.bin_dim, seed=seed, log_interval=150)
+    vadegam = VADEGAM_WRAPPER(args, preprocessor.cont_dim, preprocessor.bin_dim, log_interval=150)
     vadegam.build()
-    _ = vadegam.model_fit(train_generator, val_generator)
-    _, _, clusters, _ = vadegam.model_predict(X_all)
-    indices = X_all.index
-    return indices, clusters
+    history = vadegam.model_fit(train_generator, val_generator)
+    results['history'] = history.history
+    if args.classify:
+        _, _, _, results['pred_label_val'] = vadegam.model_predict(val_data[0])
+        results['val_data_idx'] = val_data[0].index
+        _, results['z_mean'], results['clusters'], results['pred_label_tr_val'] = vadegam.model_predict(X_all)
+        results['x_all_idx'] = X_all.index
+        if len(test_data) > 0:
+            test_data_processed = preprocessor.preprocess(*test_data)
+            _, results['z_mean_test'], results['clusters_test'], results['pred_label_test'] = vadegam.model_predict(test_data_processed[0])
+    else:
+        results['X_recon'], results['z_mean'], results['clusters'] = vadegam.model_predict(X_all)
+        if len(test_data) > 0:
+            test_data_processed = preprocessor.preprocess(test_data)
+            X_recon_tst, results['z_mean_test'], results['clusters_test'] = vadegam.model_predict(test_data_processed[0])
+            X_recon_tst_pd = pd.DataFrame(X_recon_tst, columns = test_data_processed[0].columns, index=test_data_processed[0].index)
+            X_inverted_tst = preprocessor.preprocessor.inverse_transform(X_recon_tst_pd)
+            results['X_recon_test'] = X_recon_tst_pd
+            results['X_recon_inv_test'] = X_inverted_tst
+    results['indices'] = X_all.index
+    return results
 
-def resample_runs(X, y, args, nruns=100, subsample_frac=0.5, rseeds = [], mseeds = [], save_results = './results'):
+def resample_runs(X, y, args, nruns=80, subsample_frac=0.5, rseeds = [], 
+                  mseeds = [], save_results = './results', test_data = ()):
     """Perform nruns number of runs with VaDEGam and subsample_frac*100% subsampling.
 
     :param X, y: train data and labels
@@ -54,13 +77,45 @@ def resample_runs(X, y, args, nruns=100, subsample_frac=0.5, rseeds = [], mseeds
     for i in tqdm(range(nruns)):
         sub_idx = np.sort(resample(X.index, n_samples=subsample_size, replace=False, random_state=rseeds[i]))
         X_subset = X.loc[sub_idx]
-        y_subset = y.loc[sub_idx]
-        idx, c =  train_and_pred(X_subset, y_subset, args, seed=mseeds[i])
-        
+        y_subset = None
+        if y is not None:
+            y_subset = y.loc[sub_idx]
+        results =  train_and_pred(X_subset, y_subset, args, seed=mseeds[i], test_data=test_data)
+        idx, c, z_mean = results['indices'], results['clusters'], results['z_mean']
+        if args.classify:
+            lbl, lbl_idx = results['pred_label_val'], results['val_data_idx']
+            
+            labels = pd.DataFrame(lbl, columns = ['RBC_0', 'RBC_1', 'P_0', 'P_1', 'PLT_0', 'PLT_1'])
+            labels = pd.concat([labels, pd.DataFrame(lbl_idx, columns=['val_idx'])], axis=1)
+            labels.to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_labels.csv')
+
+            lbl_tr_val, lbl_tr_val_idx = results['pred_label_tr_val'], results['x_all_idx']
+            
+            labels_tr_val = pd.DataFrame(lbl_tr_val, columns = ['RBC_0', 'RBC_1', 'P_0', 'P_1', 'PLT_0', 'PLT_1'])
+            labels_tr_val = pd.concat([labels_tr_val, pd.DataFrame(lbl_tr_val_idx, columns=['tr_val_idx'])], axis=1)
+            labels_tr_val.to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_labels_tr_val.csv')
+
+            if len(test_data) > 0:
+                z_mean_tst, c_tst, lbl_tst = results['z_mean_test'], results['clusters_test'], results['pred_label_test']
+                test_results = pd.concat([pd.DataFrame(lbl_tst, columns = ['RBC_0', 'RBC_1', 'P_0', 'P_1', 'PLT_0', 'PLT_1']), 
+                                          pd.DataFrame(c_tst, columns=['clust']),
+                                          pd.DataFrame(z_mean_tst, columns=['z1', 'z2', 'z3'])], axis=1)
+                test_results.to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_test_results.csv')
+        else:
+            if len(test_data) > 0:
+                z_mean_tst, c_tst = results['z_mean_test'], results['clusters_test']
+                X_recon_tst, X_recon_inv_tst = results['X_recon_test'], results['X_recon_inv_test']
+                test_results = pd.concat([pd.DataFrame(c_tst, columns=['clust']),
+                                          pd.DataFrame(z_mean_tst, columns=['z1', 'z2', 'z3'])], axis=1)
+                test_results.to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_test_results.csv')
+                X_recon_tst.to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_test_recon.csv')
+                X_recon_inv_tst.to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_test_recon_inv.csv')
         indices.append(idx)
         clusters.append(c)
         pd.DataFrame({'idx': idx, 'clust': c}).to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}.csv')
-    
+        pd.DataFrame(z_mean).to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_z_mean.csv')
+        pd.DataFrame(results['history']).to_csv(f'{save_results}/run{i}_{str(datetime.date.today())}_history.csv')
+
     return indices, clusters
 
 def get_consensus_M(indices, clusters, N, nruns):
