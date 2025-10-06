@@ -26,19 +26,21 @@ class PREPROCESSOR_WRAPPER:
         4) Label one-hot encoding (if softmax activation)
         5) Inverting transformations & scaling
     '''
-    def __init__(self, args, seed=12345):
+    def __init__(self, args, seed=12345, impute_bf_scaling = True):
         self.seed = args.seed if args.seed is not None else seed
-        set_seed(self.seed)
+        # set_seed(self.seed)
         # Dataset params
         self.validation_frac = args.validation_frac
         self.iqr_scaler = args.iqr_scaler
         self.imputation_strategy = args.imputation_strategy
+        self.scaling_strategy = args.scaling_strategy
         # Model params
         self.classify = args.classify
         self.num_output_head = args.num_output_head
         self.num_classes = args.num_classes
         self.batch_size = args.batch_size
         self.final_activation = args.final_activation
+        self.impute_bf_scaling = impute_bf_scaling
 
     def build(self, X_train, X_test=None, data_types = None):
         if data_types is None:
@@ -51,7 +53,8 @@ class PREPROCESSOR_WRAPPER:
 
         self.preprocessor = Preprocessing(self.real_features, self.lognormal_features, self.na_cols, 
                                           imputation_strategy=self.imputation_strategy, iqr_scaler=self.iqr_scaler,
-                                          seed=self.seed)
+                                          seed=self.seed, impute_bf_scaling=self.impute_bf_scaling, 
+                                          scaling_strategy=self.scaling_strategy)
         
     def preprocess(self, X_all, y=None, train=False):
         X = X_all[self.all_features]
@@ -59,12 +62,15 @@ class PREPROCESSOR_WRAPPER:
         missing_mask = missing_mask[self.cont_features + self.bin_features]
         if train:
             self.preprocessor.fit(X)
+            if self.classify:
+                if self.final_activation == 'softmax':
+                    y_onehot = self.preprocessor.encode_labels(y, train=True)
         X_processed = self.preprocessor.transform(X)
         X_processed = X_processed[self.cont_features + self.bin_features]
 
         if self.classify:
             if self.final_activation == 'softmax':
-                y_onehot = self.preprocessor.encode_labels(y, train=train)
+                y_onehot = self.preprocessor.encode_labels(y)
                 y_onehot = pd.DataFrame(y_onehot, columns=self.preprocessor.label_encoder.get_feature_names_out())
                 if self.num_output_head > 1:
                     # print(y_onehot)
@@ -93,9 +99,14 @@ class PREPROCESSOR_WRAPPER:
     def data_pipeline(self, X, y=None, return_generator=False, split_seed=None):
         if split_seed is None:
             split_seed = self.seed
-        X_train, X_val, y_train, y_val = self.train_validation_split(X, y, split_seed=split_seed)
-        train_data = self.preprocess(X_train, y_train, train=True)
-        val_data = self.preprocess(X_val, y_val)
+        if y is not None:
+            X_train, X_val, y_train, y_val = self.train_validation_split(X, y, split_seed=split_seed)
+            train_data = self.preprocess(X_train, y_train, train=True)
+            val_data = self.preprocess(X_val, y_val)
+        else:
+            X_train, X_val = self.train_validation_split(X, split_seed=split_seed)
+            train_data = self.preprocess(X_train, train=True)
+            val_data = self.preprocess(X_val)
         if return_generator:
             train_generator = self.get_data_generator(*train_data)
             val_generator = self.get_data_generator(*val_data, validation=True)
@@ -103,14 +114,12 @@ class PREPROCESSOR_WRAPPER:
         else:
             return train_data, val_data
         
-    def train_validation_split(self, X, y, split_seed=None):
+    def train_validation_split(self, X, y=None, split_seed=None):
         if split_seed is None:
             split_seed = self.seed
-        if self.classify:
-            return train_test_split(X, y, test_size=self.validation_frac, stratify=y, random_state=split_seed)
-        else:
-            x_tr, x_tst = train_test_split(X, test_size=self.validation_frac, random_state=split_seed)
-            return x_tr, x_tst, None, None
+        if y is None:
+            return train_test_split(X, test_size=self.validation_frac, random_state=split_seed)
+        return train_test_split(X, y, test_size=self.validation_frac, stratify=y, random_state=split_seed)
 
     def __init_feature_lists__(self):
         self.real_features = list(self.data_types[self.data_types['type'] == 'norm'].index)
@@ -134,13 +143,14 @@ class PREPROCESSOR_WRAPPER:
 
 class VADEGAM_WRAPPER:
     '''Wrapper for VaDEGam model with customable lr schedule & early stopping.'''
-    def __init__(self, args, cont_dim, bin_dim, seed=12345, log_interval=50):
-        set_seed(seed)
+    def __init__(self, args, cont_dim, bin_dim, seed=12345, log_interval=50, classif_dependent=True):
+        # set_seed(seed)
         self.seed = args.seed if args.seed is not None else seed
         self.args = args
         self.log_interval = log_interval
         self.cont_dim = cont_dim 
         self.bin_dim = bin_dim
+        self.classif_dependent = classif_dependent
         self.set_args(self.args)
 
     def set_args(self, args):
@@ -165,8 +175,6 @@ class VADEGAM_WRAPPER:
         self.num_output_head = args.num_output_head
         self.num_classes = args.num_classes
         self.final_activation = args.final_activation
-        self.nn_layers = args.nn_layers
-        self.c_sigma_initializer = args.c_sigma_initializer
 
     def build(self):
         self.build_vadegam()
@@ -195,7 +203,7 @@ class VADEGAM_WRAPPER:
                                self.num_classes, self.gamma, classify=self.classify, 
                                num_output_head=self.num_output_head, num_clusters=self.num_clusters, 
                                s_to_classifier=self.s_to_classifier, learn_prior=self.learn_prior,
-                               final_activation=self.final_activation, nn_layers=self.nn_layers, initializer=self.c_sigma_initializer)
+                               final_activation=self.final_activation,classif_dependent=self.classif_dependent)
         if self.use_lr_schedule:
             self.vadegam.compile(optimizer=keras.optimizers.Adam())
         else:
@@ -218,4 +226,3 @@ class VADEGAM_WRAPPER:
     
     def get_clusters(self, z_mean):
         return self.vadegam.get_clusters(z_mean).numpy()
-    
