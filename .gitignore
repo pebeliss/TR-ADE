@@ -1,1 +1,17 @@
-.venv
+# Virtual environments
+.venv/
+venv/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Common IDE/project files
+.vscode/
+.idea/
+
+# Build and distribution folders
+build/
+dist/
+*.egg-info/
