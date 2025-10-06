@@ -2,23 +2,31 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
-from subnetworks import Sampling, Encoder, Decoder, Classifier, Classifier_New
+from subnetworks import Sampling, Encoder, Decoder, Classifier, Classifier_New, Classifier_indep
 
 class VADEGAM(keras.Model):
     def __init__(self, latent_dim, cont_dim, bin_dim, num_classes=None, gamma = 1, 
                  classify= True, num_output_head=1, num_clusters = 10, learn_prior = False, 
-                 s_to_classifier=False, final_activation='softmax', nn_layers = [64, 32, 16], initializer = 'glorot', **kwargs):
+                 s_to_classifier=False, final_activation='softmax', nn_layers = [64, 32, 16], initializer = 'glorot', 
+                 classif_dependent=True, **kwargs):
         super(VADEGAM, self, **kwargs).__init__()
         '''Class constructor.'''
         self.classify = classify
         self.s_to_classifier = s_to_classifier
         self.encoder = Encoder(latent_dim, hidden1=nn_layers[0], hidden2=nn_layers[1], hidden3=nn_layers[2])
         self.decoder = Decoder(cont_dim, bin_dim, hidden1=nn_layers[2], hidden2=nn_layers[1], hidden3=nn_layers[0])
+        self.classif_dependent = classif_dependent
+        
         if self.classify:
             if self.s_to_classifier:
                 self.classifier = Classifier_New(num_classes, num_clusters, num_output_head=num_output_head, hidden1=latent_dim)
             else:
-                self.classifier = Classifier(num_classes, num_output_head=num_output_head, final_activation=final_activation)
+                if self.classif_dependent:
+                    self.classifier = Classifier(num_classes, num_output_head=num_output_head, final_activation=final_activation)
+                else:
+                    self.classifier1 = Classifier_indep(num_classes, final_activation=final_activation)
+                    self.classifier2 = Classifier_indep(num_classes, final_activation=final_activation)
+                    self.classifier3 = Classifier_indep(num_classes, final_activation=final_activation)
                     
         self.gamma = gamma
         self.z_dim = latent_dim
@@ -73,8 +81,6 @@ class VADEGAM(keras.Model):
 
     def call(self, data):
         '''Predict/call method.'''
-        # tf.print(len(data))
-        # tf.print(data.shape)
         z_mean, z_logvar, z = self.encoder(data)
 
         x_mean_pred, x_logvar_pred, theta_pred = self.decoder(z_mean)
@@ -83,15 +89,22 @@ class VADEGAM(keras.Model):
         if self.classify:
             if self.s_to_classifier:
                 c_onehot = tf.one_hot(c_samples, depth=self.num_clusters)
+                # classif_inp = tf.concat([z, tf.one_hot(c_samples, depth=self.num_classes)], axis=-1)
                 classif_inp = (z_mean, c_onehot)
             else:
                 classif_inp = z_mean
-            pred_label1, pred_label2, pred_label3 = self.classifier(classif_inp)
-            if self.num_output_head == 1:
-                return reconstructed, z_mean, c_samples, pred_label1
-            if self.num_output_head == 2:
-                return reconstructed, z_mean, c_samples, pred_label1, pred_label2
+            if self.classif_dependent:
+                pred_label1, pred_label2, pred_label3 = self.classifier(classif_inp)
+                if self.num_output_head == 1:
+                    return reconstructed, z_mean, c_samples, pred_label1
+                if self.num_output_head == 2:
+                    return reconstructed, z_mean, c_samples, pred_label1, pred_label2
+                else:
+                    return reconstructed, z_mean, c_samples, pred_label1, pred_label2, pred_label3
             else:
+                pred_label1 = self.classifier1(classif_inp) 
+                pred_label2 = self.classifier2(classif_inp)
+                pred_label3 = self.classifier3(classif_inp)
                 return reconstructed, z_mean, c_samples, pred_label1, pred_label2, pred_label3
         return reconstructed, z_mean, c_samples
     
@@ -103,6 +116,7 @@ class VADEGAM(keras.Model):
             elif self.num_output_head == 2:
                 data, missing_mask, (true_label1, true_label2)= inputs
             elif self.num_output_head == 3:
+                # data, missing_mask, [true_label1, true_label2, true_label3] = inputs[0]
                 data, missing_mask, (true_label1, true_label2, true_label3) = inputs
         else:
             data, missing_mask = inputs
@@ -111,35 +125,57 @@ class VADEGAM(keras.Model):
         x_mean_pred, x_logvar_pred, theta_pred = self.decoder(z)
 
         # Separate continuous and categorical parts from input and reconstruction
-        negloglik_cont = 0
         if self.cont_dim > 0:
-            negloglik_cont += self.negloglik_gaussian(x_mean_pred, x_logvar_pred, data, missing_mask)
+            negloglik_cont = self.negloglik_gaussian(x_mean_pred, x_logvar_pred, data, missing_mask)
+        else:
+            negloglik_cont = 0
 
-        negloglik_bin = 0
         if self.bin_dim > 0:
-            negloglik_bin += self.negloglik_bernoulli(theta_pred, data, missing_mask)
+            negloglik_bin = self.negloglik_bernoulli(theta_pred, data, missing_mask)
+        else:
+            negloglik_bin = 0
 
         # Combine reconstruction losses
         recon_loss = tf.reduce_mean(negloglik_cont + negloglik_bin) # Term 1 (negative version)
         # GMM losses (sum of loss terms 3-6)
         gmm_loss = self.gmm_loss(z, z_logvar) # Terms 3-6
-    
+
+        tf.debugging.check_numerics(negloglik_cont, "Cont recon loss has NaN or Inf!")
+        tf.debugging.check_numerics(negloglik_bin, "Bin recon loss has NaN or Inf!")
+        tf.debugging.check_numerics(recon_loss, "Reconstruction loss has NaN or Inf!")
+        tf.debugging.check_numerics(gmm_loss, "GMM loss has NaN or Inf!")
+
         if self.classify:
             if self.s_to_classifier:
-                c_samples = self.get_clusters(z)
-                c_onehot = tf.one_hot(c_samples, depth=self.num_clusters)
-                classif_inp = (z, c_onehot)
+                c_onehot = self.get_clusters(z)
+                c_samples = tf.one_hot(c_onehot, depth=self.num_clusters)
+                classif_inp = (z, c_samples)
             else:
                 classif_inp = z
-            pred_label1, pred_label2, pred_label3 = self.classifier(classif_inp)
-            classif_loss = self.classification_loss(true_label1, pred_label1) # Term 2 (negative version)
-            if self.num_output_head > 1:
-                classif_loss += self.classification_loss(true_label2, pred_label2) # Term 2 (negative version)
-            if self.num_output_head > 2:
-                classif_loss += self.classification_loss(true_label3, pred_label3) # Term 2 (negative version)
-            total_loss = recon_loss + self.gamma * classif_loss + gmm_loss # This is the negative augmented ELBO
+            if self.classif_dependent:
+                pred_label1, pred_label2, pred_label3 = self.classifier(classif_inp)
+
+                classif_loss = self.classification_loss(true_label1, pred_label1) # Term 2 (negative version)
+                if self.num_output_head > 1:
+                    classif_loss += self.classification_loss(true_label2, pred_label2) # Term 2 (negative version)
+                if self.num_output_head > 2:
+                    classif_loss += self.classification_loss(true_label3, pred_label3) 
+            else:
+                pred_label1 = self.classifier1(classif_inp) 
+                pred_label2 = self.classifier2(classif_inp)
+                pred_label3 = self.classifier3(classif_inp)
+                classif_loss = self.classification_loss(true_label1, pred_label1)
+                classif_loss += self.classification_loss(true_label2, pred_label2)
+                classif_loss += self.classification_loss(true_label3, pred_label3)
+            
+            tf.debugging.check_numerics(classif_loss, "Classif loss has NaN or Inf!")
+            
+            # total_loss = tf.reduce_mean(recon_loss + classif_loss + gmm_loss) # This is the Negative ELBO + Classification loss
+            total_loss = recon_loss + self.gamma * classif_loss + gmm_loss # This is the Negative ELBO + Classification loss
+            tf.debugging.check_numerics(total_loss, "Total loss has NaN or Inf!")
             return total_loss, recon_loss, gmm_loss, classif_loss, negloglik_cont, negloglik_bin
         
+        # total_loss = tf.reduce_mean(recon_loss + gmm_loss) # -ELBO
         total_loss = recon_loss + gmm_loss # -ELBO
         return total_loss, recon_loss, gmm_loss, negloglik_cont, negloglik_bin
 
@@ -151,21 +187,34 @@ class VADEGAM(keras.Model):
 
     def negloglik_bernoulli(self, theta_pred, data, missing_mask):
         '''Reconstruction loss of binary variables.'''
+        tf.debugging.check_numerics(theta_pred, "theta pred has NaN or Inf!")
+        tf.debugging.check_numerics(data[:, self.cont_dim:], "Binary data has NaN or Inf!")
+        tf.debugging.assert_non_negative(data[:, self.cont_dim:], "Binary data has negative values!")
+        tf.debugging.assert_less_equal(data[:, self.cont_dim:], tf.ones_like(data[:, self.cont_dim:]), "Binary data has values > 1!")
+        tf.debugging.check_numerics(missing_mask, "missing_mask has NaN or Inf!")
+        tf.debugging.assert_non_negative(theta_pred, "theta_pred has negative values!")
+        tf.debugging.assert_less_equal(theta_pred, tf.ones_like(theta_pred), "theta_pred has values > 1!")
         present_mask_bin = 1 - missing_mask[:, self.cont_dim:]
-        recon_bin = tf.clip_by_value(theta_pred, 1e-8, 1.0 - 1e-8)
-        bin_crossentropy = -(data[:, self.cont_dim:] * tf.math.log(recon_bin + 1e-8) + 
-                                (1 - data[:, self.cont_dim:]) * tf.math.log(1 - recon_bin + 1e-8))
-        return tf.reduce_sum(bin_crossentropy * present_mask_bin, axis=1)
+        recon_bin = tf.clip_by_value(theta_pred, 1e-6, 1.0 - 1e-6) # adjusting clipping boundaries fixed NaN loss issue
+
+        bin_crossentropy = -(data[:, self.cont_dim:] * tf.math.log(recon_bin) + 
+                                (1 - data[:, self.cont_dim:]) * tf.math.log(1 - recon_bin))
+        tf.debugging.check_numerics(present_mask_bin, "present mask has NaN or Inf!")
+        tf.debugging.check_numerics(bin_crossentropy, "bin_crossentropy has NaN or Inf!")
+        negloglik_bin = tf.reduce_sum(bin_crossentropy * present_mask_bin, axis=1)
+        tf.debugging.check_numerics(negloglik_bin, "Bernoulli func: Bin recon loss has NaN or Inf!")
+        return negloglik_bin
 
     def classification_loss(self, true_label, pred_label):
         '''Classfication loss.'''
-        if self.final_activation == 'softmax': # Categorical (used with binary as 2-class categorical in thesis)
+        if self.final_activation == 'softmax': # Categorical (Binary treated as 2-class categorical)
             return keras.losses.CategoricalCrossentropy()(true_label, pred_label)
         elif self.final_activation == 'sigmoid': # Binary
             return keras.losses.BinaryCrossentropy()(true_label, pred_label)
     
     def gmm_loss(self, z, z_logvar):
         '''GMM losses & approximate posterior losses.'''
+        # c_sigma = tf.math.exp(self.log_c_sigma)
         # Calculate log(p(z|c)) for each cluster using Gaussian log probability
         p_z_c = tf.stack([self.gaussian_log_prob(z, self.c_mu[i, :], self.log_c_sigma[i, :]) for i in range(self.num_clusters)], axis=-1)
         # p(c)
@@ -188,6 +237,11 @@ class VADEGAM(keras.Model):
         loss_variational_1 = - 0.5 * tf.reduce_sum(z_logvar + 1 + tf.math.log(2.0 * tf.constant(np.pi)), axis=-1) # Term 5 (negative version)
         loss_variational_2 = tf.reduce_sum(tf.math.xlogy(p_c_z, 1e-60 + p_c_z), axis=-1) # Term 6 (negative version)
 
+        tf.debugging.check_numerics(loss_clustering, "Clustering loss has NaN or Inf!")
+        tf.debugging.check_numerics(loss_prior, "Prior loss has NaN or Inf!")
+        tf.debugging.check_numerics(loss_variational_1, "Variational 1 loss has NaN or Inf!")
+        tf.debugging.check_numerics(loss_variational_2, "Variational 2 loss has NaN or Inf!")
+
         return tf.reduce_mean(loss_clustering + loss_prior + loss_variational_1 + loss_variational_2)
 
     def gaussian_log_prob(self, x, mean, log_sigma):
@@ -196,6 +250,7 @@ class VADEGAM(keras.Model):
 
     def get_clusters(self, z, probs=False):
         '''Get hard cluster assignments (by default).'''
+        # c_sigma = tf.math.exp(self.log_c_sigma)
         # Calculate log(p(z|c)) for each cluster using Gaussian log probability
         p_z_c = tf.stack([self.gaussian_log_prob(z, self.c_mu[i, :], self.log_c_sigma[i, :]) for i in range(self.num_clusters)], axis=-1)
         # p(c)
@@ -209,6 +264,7 @@ class VADEGAM(keras.Model):
         # p(c|z)
         p_c_z = tf.math.log(prior + 1e-60) + p_z_c
         p_c_z = tf.math.exp(tf.nn.log_softmax(p_c_z, axis=-1))
+        # return tf.cast(tf.math.argmax(p_c_z, axis=-1), tf.float32)
         if probs:
             return p_c_z
         else:
@@ -251,6 +307,8 @@ class VADEGAM(keras.Model):
             total_loss, recon_loss, gmm_loss, classif_loss, negloglik_cont, negloglik_bin = self.compute_loss(inputs)
         else:
             total_loss, recon_loss, gmm_loss, negloglik_cont, negloglik_bin = self.compute_loss(inputs)
+
+        tf.debugging.check_numerics(total_loss, "Validation total loss has NaN or Inf!")
 
         self.total_loss_tracker.update_state(total_loss)
         self.recon_loss_tracker.update_state(tf.reduce_mean(recon_loss))
