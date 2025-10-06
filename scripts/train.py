@@ -4,12 +4,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import mlflow
-import mlflow.tensorflow
+import mlflow.keras
+# import mlflow.tensorflow
+# from mlflow.models import infer_signature
 import tensorflow as tf
 
+# Limit parallel threads for reproducibility
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
+
 sys.path.append(".")
+from TR_ADE_pipeline import set_seed
+seed = 1000
+set_seed(seed)
+
 from TR_ADE import *
-from TR_ADE_pipeline import *
+from TR_ADE_pipeline import PREPROCESSOR_WRAPPER, TR_ADE_WRAPPER
 from model_args import getArgs
 
 from sklearn.model_selection import train_test_split
@@ -32,6 +42,7 @@ def evaluate_and_log(probs, true_labels, clusters=None):
     mlflow.log_metric("f1", float(f1))
     mlflow.log_metric("roc_auc", float(roc_auc))
     mlflow.log_metric("pr_auc", float(pr_auc))
+    # mlflow.log_param("seed", seed)
 
     # ROC figure
     fig = plt.figure()
@@ -71,8 +82,6 @@ def main():
     # Start MLflow run
     mlflow.set_experiment("vae_classifier")
     with mlflow.start_run():
-        # log all argparse params
-        mlflow.log_params({k: v for k, v in vars(args).items()})
 
         # Load data (your current notebook workflow)
         heartdata = pd.read_csv(os.path.join(args.data_path, "heart.csv"))
@@ -98,6 +107,8 @@ def main():
         args.nn_layers = [40, None, None]
         args.c_sigma_initializer = 'constant'
         args.s_to_classifier = False
+        # log all argparse params
+        mlflow.log_params({k: v for k, v in vars(args).items()})
 
         # preprocess & generators
         preprocessor = PREPROCESSOR_WRAPPER(args)
@@ -118,7 +129,7 @@ def main():
             )
         )
 
-        history = tr_ade.TR_ADE_fit(train_gen, val_gen, callbacks=[mlf_cb])  # slight change; see §2.2
+        history = tr_ade.model_fit(train_gen, val_gen, callbacks=[mlf_cb])  # slight change; see §2.2
 
         # Log final losses from history if present
         if hasattr(history, "history"):
@@ -143,7 +154,7 @@ def main():
 
         # Test set inference
         test_data = preprocessor.preprocess(X_test, y_test)
-        X_recon, z_mean_te, clusters_te, pred_label = tr_ade.TR_ADE_predict(test_data[0])
+        X_recon, z_mean_te, clusters_te, pred_label = tr_ade.model_predict(test_data[0])
 
         # Evaluation (logs metrics + figs)
         evaluate_and_log(pred_label, test_data[2].iloc[:,1], clusters=clusters_te)
@@ -156,13 +167,26 @@ def main():
         mlflow.log_artifact(preproc_path)
 
         # Log Keras model (use TF flavor)
-        mlflow.tensorflow.log_model(
-            tf_saved_model_dir=tr_ade.TR_ADE,  # Keras/TF model object
-            artifact_path="tr_ade",
-            registered_model_name="VAEClassifier"
-        )
-
-        # Optional: tag the run
+        # mlflow.tensorflow.log_model(
+        #     tf_saved_model_dir=tr_ade.TR_ADE,  # Keras/TF model object
+        #     artifact_path="tr_ade",
+        #     registered_model_name="VAEClassifier"
+        # )
+        try:
+            # Newer MLflow versions usually support extra kwargs like registered_model_name
+            mlflow.keras.log_model(
+                tr_ade.TR_ADE,                      # <-- positional, NOT keras_model=
+                __name__="model",
+                registered_model_name="VAEClassifier",
+                keras_module="tensorflow.keras",  # remove if this triggers TypeError
+                pip_requirements = args.pip_reqs_path
+            )
+        except TypeError:
+            # Older MLflow: fewer kwargs; fall back to simplest signature
+            with open(args.pip_reqs_path) as f:
+                req_list = [ln.strip() for ln in f if ln.strip() and not ln.lstrip().startswith("#")]
+            mlflow.keras.log_model(tr_ade.TR_ADE, "model", pip_requirements=req_list)
+                # Optional: tag the run
         mlflow.set_tag("framework", "tf-keras")
         mlflow.set_tag("pipeline", "TR_ADE_pipeline.py")
 

@@ -3,7 +3,7 @@ import argparse
 def getArgs(argv=None):
     parser = argparse.ArgumentParser(description='Default parameters of the models',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--seed', type=int, default=12345, help='Random seed.')
+    parser.add_argument('--seed', type=int, default=1000, help='Random seed.')
     parser.add_argument('--batch_size', type=int, default=100, help='Size of the batches')
     parser.add_argument('--epochs',type=int, default=5000, help='Number of epochs')
     parser.add_argument('--latent_dim',type=int, default=3, help='Dimension of the latent space')
@@ -18,6 +18,7 @@ def getArgs(argv=None):
     parser.add_argument('--iqr_scaler',type=float, default=1.5, help='IQR scaler realted to outlier handling.')
     parser.add_argument('--data_path',type=str, default='./data', help='Data folder')
     parser.add_argument('--results_path',type=str, default='./results', help='Results folder')
+    parser.add_argument('--pip_reqs_path',type=str, default='requirements.txt', help='Requirements file')
     parser.add_argument('--use_early_stopping', type=bool, default=True, help='Usage of early stopping.')
     parser.add_argument('--early_stopping_patience', type=int, default=50, help='Early stopping patience.')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate.')

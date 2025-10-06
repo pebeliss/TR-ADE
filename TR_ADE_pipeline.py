@@ -192,6 +192,7 @@ class TR_ADE_WRAPPER:
         if self.use_lr_schedule:
             self.lr_schedule = tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_total_loss',
+                mode = 'min',
                 factor=0.5,
                 patience=10,
                 min_lr=1e-6)
@@ -212,7 +213,9 @@ class TR_ADE_WRAPPER:
         else:
             self.TR_ADE.compile(optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate))
 
-    def model_fit(self, train_generator, val_generator):
+    def model_fit(self, train_generator, val_generator, callbacks=None):
+        if callbacks:
+            self.callbacks += callbacks
         if self.use_early_stopping:
             return self.TR_ADE.fit(train_generator, validation_data=val_generator, 
                                     epochs=self.epochs, callbacks=self.callbacks, verbose=0)
