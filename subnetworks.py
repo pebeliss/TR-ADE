@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+from keras import layers
 
 class Sampling(layers.Layer):
     def call(self, inputs):
@@ -32,6 +32,9 @@ class Encoder(keras.Model):
             x = layer(x)
         z_mean = self.z_mean_layer(x)
         z_logvar = self.z_logvar_layer(x)
+        # z_logvar = tf.clip_by_value(z_logvar, -10.0, 10.0) # NAn fix try
+        tf.debugging.check_numerics(z_mean, "DEC: z_mean has NaN or Inf!")
+        tf.debugging.check_numerics(z_logvar, "DEC: z_logvar has NaN or Inf!")
         z = Sampling()([z_mean, z_logvar])
         return z_mean, z_logvar, z
 
@@ -192,6 +195,7 @@ class Classifier_New(keras.Model):
                 predictions3.append(prob3)
         
         c_expanded = tf.expand_dims(c, -1)
+        # stacked1 = tf.transpose(tf.stack(predictions1), perm=[1, 0, 2])
         stacked1 = tf.stack(predictions1, axis=1)
         y_pred1 = tf.reduce_sum(stacked1 * c_expanded, axis=1)
 
