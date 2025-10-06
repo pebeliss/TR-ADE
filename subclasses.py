@@ -1,11 +1,11 @@
 import numpy as np
 import tensorflow as tf
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler, StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
-from tensorflow.keras.callbacks import Callback
+from keras.callbacks import Callback
 
 class EpochLogger(Callback):
     def __init__(self, log_interval=10):
@@ -23,15 +23,20 @@ class ResetMetricsCallback(Callback):
         self.model.val_recon_loss.reset_states()
 
 class Preprocessing:
-    def __init__(self, normal_variables, lognormal_variables, na_cols, imputation_strategy='MICE', iqr_scaler=2, seed=12345):
+    def __init__(self, normal_variables, lognormal_variables, na_cols, imputation_strategy='MICE', 
+                 iqr_scaler=2, seed=12345, impute_bf_scaling=True, scaling_strategy='standard'):
         self.seed = seed
-        self.scaler = StandardScaler()
+        if scaling_strategy=='standard':
+            self.scaler = StandardScaler()
+        elif scaling_strategy=='minmax':
+            self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.label_encoder = OneHotEncoder(sparse_output=False, drop=None)
         self.log_shift_values = {}
         self.Q1 = {}
         self.Q3 = {}
         self.IQR = {}
         self.iqr_scaler = iqr_scaler
+        self.outlier_percent = {}
         self.imputation_strategy = imputation_strategy
 
         self.all_continuous = normal_variables + lognormal_variables
@@ -39,6 +44,7 @@ class Preprocessing:
         self.normal_variables = normal_variables
         self.normal_variables = normal_variables
         self.na_cols = na_cols
+        self.impute_bf_scaling = impute_bf_scaling
 
         if self.imputation_strategy == 'MICE':
             self.imputer = IterativeImputer(max_iter=10, random_state=self.seed)
@@ -56,13 +62,17 @@ class Preprocessing:
 
         # Step 1: Logtransfrom to fit data transformation for lognormal variables
         data_fit = self.transform_logtransformer(data_fit)
-        # Step 2: Remove outliers
+        # step 2: Remove outliers
         data_fit = self.fit_outlier_handler(data_fit)
-        # Step 3: Impute missing values
-        self.fit_imputer(data_fit)
-        data_fit = self.transform_imputer(data_fit)
-        # Step 4: Fit scaling for continuous and lognormal variables (zero mean, unit variance)
-        data_fit = self.fit_scaler(data_fit)
+        # Step 3: Fit scaling for continuous and lognormal variables (zero mean, unit variance)
+        if self.impute_bf_scaling:
+            self.fit_imputer(data_fit)
+            data_fit = self.transform_imputer(data_fit)
+            data_fit = self.fit_scaler(data_fit)
+        else:
+            data_fit = self.fit_scaler(data_fit)
+            # Step 4: Fit imputor 
+            self.fit_imputer(data_fit)
 
     def fit_outlier_handler(self, data_fit):
         for var in self.all_continuous:
@@ -70,6 +80,7 @@ class Preprocessing:
             self.Q1[var] = data_fit[var].quantile(0.25)
             self.IQR[var] = self.Q3[var] - self.Q1[var]
             outliers = (data_fit[var] < (self.Q1[var] - self.iqr_scaler * self.IQR[var])) | (data_fit[var] > (self.Q3[var] + self.iqr_scaler * self.IQR[var]))
+            self.outlier_percent[var] = len(outliers)/len(data_fit[var].dropna())
             data_fit.loc[outliers, var] = np.nan
             if len(outliers) > 0 and var not in self.na_cols:
                 self.na_cols.append(var)
@@ -99,10 +110,14 @@ class Preprocessing:
         transformed_data = self.transform_logtransformer(transformed_data)
         # Step 2: Remove outliers in continuous and lognormal variables
         transformed_data = self.transform_outlier_handler(transformed_data)
-        # Step 3: Impute
-        transformed_data = self.transform_imputer(transformed_data)
-        # Step 4: Scale
-        transformed_data = self.transform_scaler(transformed_data)
+        # Step 3: Apply the saved scaling for continuous and lognormal variables
+        if self.impute_bf_scaling:
+            transformed_data = self.transform_imputer(transformed_data)
+            transformed_data = self.transform_scaler(transformed_data)
+        else:
+            transformed_data = self.transform_scaler(transformed_data)
+            # Step 4: Impute missing values (including outliers) with zeros
+            transformed_data = self.transform_imputer(transformed_data)
         transformed_data = pd.DataFrame(transformed_data, columns=data.columns, index=data.index)
         return transformed_data
 
