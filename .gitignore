@@ -15,3 +15,5 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+deprecated/
