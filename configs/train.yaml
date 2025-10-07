@@ -1,0 +1,10 @@
+data_path: data
+latent_dim: 3
+num_clusters: 5
+classify: true
+nn_layers: [40, null, null]
+seed: 42
+num_output_head: 1
+learn_prior: True
+c_sigma_initializer: 'constant'
+s_to_classifier: False

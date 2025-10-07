@@ -18,6 +18,10 @@ from TR_ADE_pipeline import set_seed
 seed = 1000
 set_seed(seed)
 
+import yaml
+from pathlib import Path
+# cfg_path = os.environ.get("CFG", "configs/train.yaml")
+
 from TR_ADE import *
 from TR_ADE_pipeline import PREPROCESSOR_WRAPPER, TR_ADE_WRAPPER
 from model_args import getArgs
@@ -78,7 +82,11 @@ def evaluate_and_log(probs, true_labels, clusters=None):
 def main():
     args = getArgs(sys.argv[1:])  # use CLI args
     os.environ["PYTHONHASHSEED"] = str(args.seed) if hasattr(args, "seed") else "0"
-
+    cfg_path = Path(__file__).resolve().parent.parent / "configs" / "train.yaml"
+    if cfg_path.exists():
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        args.__dict__.update({k: v for k, v in cfg.items() if k in args.__dict__})
     # Start MLflow run
     mlflow.set_experiment("vae_classifier")
     with mlflow.start_run():
@@ -96,17 +104,8 @@ def main():
         X_train, X_test, y_train, y_test = train_test_split(
             X_data, y_data.values.reshape(-1,1), stratify=y_data, random_state=42
         )
-
-        # adjust a few args like in the notebook
-        args.num_output_head = 1
         args.num_classes = len(np.unique(y_train))
-        args.latent_dim = 3
-        args.num_clusters = 5
-        args.learn_prior = True
-        args.classify = True
-        args.nn_layers = [40, None, None]
-        args.c_sigma_initializer = 'constant'
-        args.s_to_classifier = False
+        
         # log all argparse params
         mlflow.log_params({k: v for k, v in vars(args).items()})
 
