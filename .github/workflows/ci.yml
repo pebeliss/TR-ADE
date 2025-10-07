@@ -27,15 +27,12 @@ jobs:
       - name: Install from generated lock
         run: pip install -r requirements.txt
 
-      - name: Run tests
-        run: pytest -q
-
       - name: Prepare tiny dataset
         run: |
           python - <<'PY'
           import pathlib as p, pandas as pd
-          data_dir = p.Path('data'); data_dir.mkdir(exist_ok=True)
-          f = data_dir/'heart.csv'
+          d = p.Path('data'); d.mkdir(exist_ok=True)
+          f = d/'heart.csv'
           if not f.exists():
               pd.DataFrame({
                   "Age":[50,60,70,55],
@@ -45,6 +42,9 @@ jobs:
               }).to_csv(f, index=False)
           print("Data ready:", f.resolve())
           PY
+
+      - name: Run tests
+        run: pytest -q
 
       - name: Smoke train (1 epoch)
         run: |
