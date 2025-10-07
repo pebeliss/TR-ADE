@@ -1,28 +1,46 @@
 name: ci
+
 on:
-  pull_request:
   push:
     branches: [ main, master ]
+  pull_request:
 
 jobs:
-  build-test:
+  smoke:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-      - run: python -m venv .venv
-      - run: . .venv/bin/activate && pip install -U pip && pip install pip-tools
-      - run: . .venv/bin/activate && pip install -r requirements.txt
-      - run: . .venv/bin/activate && pytest -q
-      - run: . .venv/bin/activate && python - << 'PY'
-import os, pandas as pd
-os.makedirs('data', exist_ok=True)
-# Create a tiny synthetic CSV if heart.csv not present on CI
-if not os.path.exists('data/heart.csv'):
-    df = pd.DataFrame({"Age":[50,60,70,55], "Sex":[1,0,1,0], "ExerciseAngina":[0,1,0,1], "HeartDisease":[1,0,1,0]})
-    df.to_csv('data/heart.csv', index=False)
-print("Data prepared")
-PY
-      - run: . .venv/bin/activate && python scripts/train.py --data_path data --epochs 1
+          python-version: '3.10'  # match your local Python
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest -q
+
+      - name: Prepare tiny dataset if missing
+        run: |
+          python - <<'PY'
+          import pathlib as p, pandas as pd
+          data_dir = p.Path('data'); data_dir.mkdir(exist_ok=True)
+          f = data_dir / 'heart.csv'
+          if not f.exists():
+              df = pd.DataFrame({
+                  "Age":[50,60,70,55],
+                  "Sex":[1,0,1,0],
+                  "ExerciseAngina":[0,1,0,1],
+                  "HeartDisease":[1,0,1,0],
+              })
+              df.to_csv(f, index=False)
+          print("Data ready:", f.resolve())
+          PY
+
+      - name: Smoke train (1 epoch)
+        run: |
+          python scripts/train.py --data_path data --epochs 1
