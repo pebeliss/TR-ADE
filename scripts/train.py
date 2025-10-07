@@ -175,7 +175,7 @@ def main():
             # Newer MLflow versions usually support extra kwargs like registered_model_name
             mlflow.keras.log_model(
                 tr_ade.TR_ADE,                      # <-- positional, NOT keras_model=
-                __name__="model",
+                name="model",
                 registered_model_name="VAEClassifier",
                 keras_module="tensorflow.keras",  # remove if this triggers TypeError
                 pip_requirements = args.pip_reqs_path
