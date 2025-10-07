@@ -8,8 +8,8 @@ def test_repo_layout():
     assert (root / "configs").is_dir(), "configs/ missing"
 
 def test_imports():
-    __import__("TR-ADE")
-    __import__("TR-ADE_pipeline")
+    __import__("TR_ADE")
+    __import__("TR_ADE_pipeline")
     __import__("subnetworks")
     __import__("subclasses")
     __import__("utils")
