@@ -16,4 +16,4 @@ The work was done as a spin-off of a larger joint-project between Finnish Red Cr
 
 ---
 
-<sub>©_*The method was previously named VaDEGam during writing the [Master's Thesis](https://urn.fi/URN:NBN:fi:aalto-202505193784) - Unveiling patient phenotypes in blood transfusion therapy through deep representation learning - completed at Aalto University in Spring 2025. The thesis was graded 'Excellent' (5/5)._</sub>
+<sub>_*The method was previously named VaDEGam during writing the [Master's Thesis](https://urn.fi/URN:NBN:fi:aalto-202505193784) - Unveiling patient phenotypes in blood transfusion therapy through deep representation learning - completed at Aalto University in Spring 2025. The thesis was graded 'Excellent' (5/5)._</sub>
