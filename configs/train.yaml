@@ -3,7 +3,7 @@ latent_dim: 3
 num_clusters: 5
 classify: true
 nn_layers: [40, null, null]
-seed: 42
+seed: 12345
 num_output_head: 1
 learn_prior: True
 c_sigma_initializer: 'constant'

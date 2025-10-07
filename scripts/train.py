@@ -1,36 +1,34 @@
-# scripts/train.py
-import os, sys, json, tempfile
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import mlflow
-import mlflow.keras
-# import mlflow.tensorflow
-# from mlflow.models import infer_signature
 import tensorflow as tf
-
 # Limit parallel threads for reproducibility
 tf.config.threading.set_intra_op_parallelism_threads(1)
 tf.config.threading.set_inter_op_parallelism_threads(1)
 
-sys.path.append(".")
-from TR_ADE_pipeline import set_seed
-seed = 1000
-set_seed(seed)
+import os, sys, json, tempfile
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import mlflow
+import mlflow.keras
+# import mlflow.tensorflow
+# from mlflow.models import infer_signature
 
+sys.path.append(".")
+# from TR_ADE_pipeline import set_seed
 import yaml
 from pathlib import Path
-# cfg_path = os.environ.get("CFG", "configs/train.yaml")
-
 from TR_ADE import *
-from TR_ADE_pipeline import PREPROCESSOR_WRAPPER, TR_ADE_WRAPPER
+# from TR_ADE_pipeline import PREPROCESSOR_WRAPPER, TR_ADE_WRAPPER
+from TR_ADE_pipeline import *
 from model_args import getArgs
-
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     f1_score, roc_curve, precision_recall_curve, auc, classification_report
 )
 import cloudpickle, joblib
+
+# seed = 1000
+# set_seed(seed)
 
 def evaluate_and_log(probs, true_labels, clusters=None):
     y_true = true_labels.values.ravel()
@@ -81,12 +79,14 @@ def evaluate_and_log(probs, true_labels, clusters=None):
 
 def main():
     args = getArgs(sys.argv[1:])  # use CLI args
-    os.environ["PYTHONHASHSEED"] = str(args.seed) if hasattr(args, "seed") else "0"
+    # os.environ["PYTHONHASHSEED"] = str(args.seed) if hasattr(args, "seed") else "0"
     cfg_path = Path(__file__).resolve().parent.parent / "configs" / "train.yaml"
     if cfg_path.exists():
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         args.__dict__.update({k: v for k, v in cfg.items() if k in args.__dict__})
+    set_seed(args.seed)
+    
     # Start MLflow run
     mlflow.set_experiment("vae_classifier")
     with mlflow.start_run():
@@ -127,7 +127,8 @@ def main():
                 step=epoch
             )
         )
-
+        print(tr_ade.TR_ADE.c_mu)
+        
         history = tr_ade.model_fit(train_gen, val_gen, callbacks=[mlf_cb])  # slight change; see §2.2
 
         # Log final losses from history if present
@@ -144,11 +145,31 @@ def main():
 
         z_mean, z_logvar, z = tr_ade.TR_ADE.encoder(X_all)
         clusters = tr_ade.TR_ADE.get_clusters(z_mean)
-
+        x_mean_pred, x_logvar_pred, theta_pred = tr_ade.TR_ADE.decoder(z_mean)
+        reconstructed = tf.concat([x_mean_pred, theta_pred], axis=1)
+        
+        print(np.unique(clusters, return_counts=True))
+        
         fig = plt.figure()
         plt.scatter(z_mean[:,0], z_mean[:,1], c=clusters)
         plt.colorbar(); plt.title("Latent space (clusters)")
         mlflow.log_figure(fig, "plots/latent_clusters.png")
+        plt.close(fig)
+        
+        fig = plt.figure()
+        palette = sns.color_palette("tab10", len(np.unique(clusters)))
+        colors = {cluster: palette[i] for i, cluster in enumerate(np.unique(clusters))}
+
+        for i in range(args.num_clusters):
+            if i in np.unique(clusters):
+                cluster_samples = np.random.multivariate_normal(tr_ade.TR_ADE.c_mu[i,:].numpy(), np.diag(tr_ade.TR_ADE.log_c_sigma[i,:]), size = 100)
+                plt.scatter(cluster_samples[:,0],cluster_samples[:,1], label = f'Cluster {i}', s=5, color=colors[i])
+                sns.kdeplot(x=cluster_samples[:,0], y=cluster_samples[:,1], linewidths=0.5, color=colors[i])        
+        plt.scatter(z_mean[:,0], z_mean[:,1], color='black', label='Z', s=5)
+        plt.scatter(z_mean[:,0], z_mean[:,1], c=clusters, s=3, cmap='cool')
+        plt.colorbar()
+        plt.legend()
+        mlflow.log_figure(fig, "plots/latent_and_gen_samples.png")
         plt.close(fig)
 
         # Test set inference
