@@ -1,11 +1,19 @@
-# Source code for Master's Thesis project
+# TR-ADE* - _Transfusion Recipient Adaptive Deep Embedding_
 
-This is the repository for my Master's Thesis:
+_TR-ADE_ is a GMM prior VAE coupled with a discriminative classifier, initially built for clinical data mining but can be extended to any other applicable setting. 
 
-\- _Unveiling patient phenotypes in blood transfusion therapy through deep representation learning_ -
+More specifically, TR-ADE is used to find clinically relevant subgroups among nearly 20,000 adult transfusion recipients. The GMM prior enables built in clustering, with GMM parameters optimized jointly with the parameters of the encoder and decoder as the loss is derived from the Evidence Lower Bound (ELBO) objective, that includes the KL divergence between the GMM prior and posterior. 
+Furthermore, the model is combined with a classifier module, a fully-connected and shallow neural network, that is optimized together with the VAE backbone.
 
-completed at Aalto University in Spring 2025. 
+The work was done as a spin-off of a larger joint-project between Finnish Red Cross, Blood Service and HUS Helsinki University Hospital aming to optimize blood supply chain and predict blood demand in HUS Hospitals.
 
-The [work](https://urn.fi/URN:NBN:fi:aalto-202505193784) was done as a spin-off of a larger joint-project between Finnish Red Cross, Blood Service and HUS Helsinki University Hospital aming to predict blood demand in HUS Hospitals.
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
 
-The thesis was graded 'Excellent' (5/5).
+---
+
+<sub>_*The method was previously named VaDEGam during writing the [Master's Thesis](https://urn.fi/URN:NBN:fi:aalto-202505193784) - Unveiling patient phenotypes in blood transfusion therapy through deep representation learning - completed at Aalto University in Spring 2025. The thesis was graded 'Excellent' (5/5)._</sub>
