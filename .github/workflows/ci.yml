@@ -20,12 +20,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pip-tools
-          # compile requirements for the current platform
           pip-compile requirements.in -o requirements.txt
           cat requirements.txt
 
       - name: Install from generated lock
         run: pip install -r requirements.txt
+
+      - name: Ensure PYTHONPATH includes repo root
+        run: echo "PYTHONPATH=$PWD" >> $GITHUB_ENV
 
       - name: Prepare tiny dataset
         run: |
